@@ -1,1 +1,1 @@
-{"private":true,"scripts":{"check":"python -m py_compile app.py buscador_mundial.py api/index.py"}}
+{"private":true,"name":"webplay","scripts":{"check":"python -m py_compile app.py buscador_mundial.py motor_ia_global.py public_domain_catalog.py api/index.py"}}
