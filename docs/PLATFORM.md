@@ -1,3 +1,21 @@
-# Platform status
+# WEBPLAY — platform status
 
-GitHub repository is the source of truth. Vercel project is linked to this repository under the BETARUBI 2.0 scope. Neon has a dedicated BETARUBI 2.0 project. Sentry SDK is wired in the application; the Sentry account connection is required to supply the DSN.
+WEBPLAY is an independent rebuild. The original BETARUBI project is not part of this application.
+
+## Isolation requirements
+- Separate repository/workflow identity.
+- Separate PostgreSQL/Neon database.
+- Separate Vercel project/deployment.
+- Separate production domain when one is provisioned.
+- Separate secrets and API credentials.
+
+## Current implementation
+- Flask application with PostgreSQL/Neon.
+- Responsive catalog/player for films, series, TV and audiobooks.
+- WEBPLAY Originals and episode-access model.
+- Rights-aware discovery pipeline.
+- Daily discovery workflow and opt-in newsletter.
+- Sentry integration without credentials committed to Git.
+
+## Provisioning gates
+The project is not considered production-ready until the dedicated Vercel project, Neon database credentials and optional Sentry DSN are configured and `/api/health` returns `ok=true`.
