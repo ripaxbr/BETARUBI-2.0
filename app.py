@@ -24,6 +24,7 @@ def init_db():
         c.execute("""CREATE TABLE IF NOT EXISTS vertical_episodes(id BIGSERIAL PRIMARY KEY,series_id BIGINT NOT NULL REFERENCES vertical_series(id) ON DELETE CASCADE,episode_number INTEGER NOT NULL,title TEXT NOT NULL,youtube_video_id TEXT NOT NULL UNIQUE,release_at TIMESTAMPTZ,free_at TIMESTAMPTZ,access_mode TEXT NOT NULL DEFAULT 'premium' CHECK(access_mode IN ('free','premium')),price NUMERIC(10,2) NOT NULL DEFAULT 2.99,is_active BOOLEAN NOT NULL DEFAULT TRUE,created_at TIMESTAMPTZ NOT NULL DEFAULT now(),UNIQUE(series_id,episode_number))")
         c.execute("""CREATE TABLE IF NOT EXISTS orders(id BIGSERIAL PRIMARY KEY,provider TEXT NOT NULL,provider_payment_id TEXT UNIQUE,status TEXT NOT NULL,amount NUMERIC(10,2) NOT NULL,currency TEXT NOT NULL DEFAULT 'BRL',user_ref TEXT,series_id BIGINT REFERENCES vertical_series(id) ON DELETE SET NULL,episode_id BIGINT REFERENCES vertical_episodes(id) ON DELETE SET NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT now(),updated_at TIMESTAMPTZ NOT NULL DEFAULT now())")
         c.execute("""CREATE TABLE IF NOT EXISTS episode_access(id BIGSERIAL PRIMARY KEY,user_ref TEXT NOT NULL,episode_id BIGINT NOT NULL REFERENCES vertical_episodes(id) ON DELETE CASCADE,order_id BIGINT REFERENCES orders(id) ON DELETE SET NULL,granted_at TIMESTAMPTZ NOT NULL DEFAULT now(),UNIQUE(user_ref,episode_id))")
+        c.execute("""CREATE TABLE IF NOT EXISTS newsletter_subscribers(id BIGSERIAL PRIMARY KEY,email TEXT NOT NULL UNIQUE,subscribed_at TIMESTAMPTZ NOT NULL DEFAULT now(),active BOOLEAN NOT NULL DEFAULT TRUE)""")
 def ip(): x=request.headers.get('X-Forwarded-For','');return (x.split(',')[0].strip() if x else request.remote_addr) or 'unknown'
 def limited(x):
     now=time.time();_attempts[x]=[t for t in _attempts[x] if now-t<300];return len(_attempts[x])>=5
@@ -72,15 +73,22 @@ def vertical_series():
 @app.get('/api/vertical-series/<int:series_id>/episodes')
 def episodes(series_id):
     with db() as c:return jsonify(c.execute('SELECT id,episode_number,title,youtube_video_id,release_at,free_at,access_mode,price FROM vertical_episodes WHERE series_id=%s AND is_active ORDER BY episode_number',(series_id,)).fetchall())
+@app.post('/api/newsletter/subscribe')
+def newsletter_subscribe():
+    email=request.form.get('email','').strip().lower() if request.form else ''
+    if not email and request.is_json: email=str((request.json or {}).get('email','')).strip().lower()
+    if '@' not in email or len(email)>254:return jsonify(ok=False,error='E-mail inválido'),400
+    with db() as c:c.execute('INSERT INTO newsletter_subscribers(email) VALUES(%s) ON CONFLICT(email) DO UPDATE SET active=TRUE',(email,))
+    return jsonify(ok=True,message='Inscrição ativada')
 @app.get('/api/health')
 @app.get('/api/status')
 def health():
     try:
-        with db() as c:c.execute('SELECT 1');m=c.execute('SELECT count(*) n FROM media_items WHERE is_active').fetchone()['n'];s=c.execute('SELECT count(*) n FROM vertical_series WHERE is_active').fetchone()['n'];e=c.execute('SELECT count(*) n FROM vertical_episodes WHERE is_active').fetchone()['n']
-        return jsonify(ok=True,service='BETARUBI 2.0',database='ok',media_count=m,series_count=s,episode_count=e)
+        with db() as c:c.execute('SELECT 1');m=c.execute('SELECT count(*) n FROM media_items WHERE is_active').fetchone()['n'];s=c.execute('SELECT count(*) n FROM vertical_series WHERE is_active').fetchone()['n'];e=c.execute('SELECT count(*) n FROM vertical_episodes WHERE is_active').fetchone()['n'];ch=c.execute('SELECT count(*) n FROM tv_channels WHERE is_active').fetchone()['n'];n=c.execute('SELECT count(*) n FROM newsletter_subscribers WHERE active').fetchone()['n']
+        return jsonify(ok=True,service='WEBPLAY',database='ok',media_count=m,series_count=s,episode_count=e,channel_count=ch,newsletter_subscribers=n)
     except Exception as e:
         if sentry_sdk:sentry_sdk.capture_exception(e)
-        return jsonify(ok=False,service='BETARUBI 2.0',database='error'),503
+        return jsonify(ok=False,service='WEBPLAY',database='error'),503
 @app.route('/admin',methods=['GET','POST'])
 def admin():
     x=ip()

@@ -1,27 +1,60 @@
-name: BETARUBI 2.0 CI
+name: WEBPLAY CI
+
 on:
   push:
-    branches: [main]
+    branches: [main, webplay-bootstrap]
   pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: webplay-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install --upgrade pip
-      - run: pip install -r requirements.txt
-      - run: python -m py_compile app.py app_streaming.py buscador_mundial.py api/index.py
-      - run: python - <<'PY'
-        from pathlib import Path
-        required = ['templates/index.html', 'templates/admin.html', 'vercel.json']
-        missing = [p for p in required if not Path(p).is_file()]
-        assert not missing, f'Missing required files: {missing}'
-        html = Path('templates/index.html').read_text(encoding='utf-8')
-        assert 'BETARUBI 2.0' in html
-        assert 'SpeechRecognition' in html
-        assert 'youtube.com/embed' in html
-        print('BETARUBI 2.0 validation OK')
-        PY
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile Python
+        run: python -m py_compile app.py app_streaming.py buscador_mundial.py motor_ia_global.py public_domain_catalog.py api/index.py tests/test_webplay.py
+      - name: Run application tests
+        run: python -m unittest discover -s tests -v
+      - name: Validate required files and identity
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          required = [
+              'templates/index.html',
+              'templates/admin.html',
+              'templates/originais.html',
+              'vercel.json',
+              'db/schema.sql',
+              'motor_ia_global.py',
+              'public_domain_catalog.py',
+              '.github/workflows/webplay-daily-discovery.yml',
+          ]
+          missing = [p for p in required if not Path(p).is_file()]
+          assert not missing, f'Missing required files: {missing}'
+          html = Path('templates/index.html').read_text(encoding='utf-8')
+          assert 'WEBPLAY' in html
+          assert 'BETARUBI 2.0' not in html
+          assert 'SpeechRecognition' in html
+          assert 'youtube.com/embed' in html
+          admin = Path('templates/admin.html').read_text(encoding='utf-8')
+          assert 'WEBPLAY' in admin
+          assert 'BETARUBI 2.0' not in admin
+          print('WEBPLAY validation OK')
+          PY

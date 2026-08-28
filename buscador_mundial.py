@@ -4,7 +4,6 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import quote
 from urllib.request import Request, urlopen
-
 import psycopg
 
 MATRIZ_GLOBAL = [
@@ -21,16 +20,14 @@ MATRIZ_GLOBAL = [
     {"tipo":"Audiolivro","categoria":"Literatura","pais":"Reino Unido","idioma":"Ingles","termo":"public domain audiobook sherlock holmes"},
 ]
 
-
 def search(term):
     try:
         url = "https://www.youtube.com/results?search_query=" + quote(term)
-        req = Request(url, headers={"User-Agent":"Mozilla/5.0 BETARUBI-2.0"})
+        req = Request(url, headers={"User-Agent":"WEBPLAY-Discovery/1.0"})
         with urlopen(req, timeout=12) as response:
             return response.read().decode("utf-8", "ignore")
     except Exception:
         return ""
-
 
 def initial_data(html):
     match = re.search(r"ytInitialData\s*=\s*(\{.*?\})\s*;", html, re.S)
@@ -40,7 +37,6 @@ def initial_data(html):
         return json.loads(match.group(1))
     except json.JSONDecodeError:
         return None
-
 
 def walk(obj):
     if isinstance(obj, dict):
@@ -52,65 +48,39 @@ def walk(obj):
         for value in obj:
             yield from walk(value)
 
-
 def extract(html, node):
     data = initial_data(html)
     if not data:
         return []
-    result = []
-    seen = set()
+    result=[];seen=set()
     for video in walk(data):
-        video_id = video.get("videoId")
-        runs = video.get("title", {}).get("runs", [])
-        owner = video.get("ownerText", {}).get("runs", [])
-        if not video_id or not runs or video_id in seen:
-            continue
-        title = runs[0].get("text", "").strip()
-        source = owner[0].get("text", "YouTube") if owner else "YouTube"
-        lower = title.lower()
-        if node["tipo"] == "Filme" and any(x in lower for x in ("trailer", "review", "reaction", "gameplay")):
-            continue
-        if node["tipo"] == "Audiolivro" and not any(x in lower for x in ("audio", "livro", "book", "hoerbuch")):
-            continue
-        seen.add(video_id)
-        result.append((title, source, video_id, video.get("lengthText", {}).get("simpleText", "Completo")))
+        video_id=video.get("videoId");runs=video.get("title",{}).get("runs",[]);owner=video.get("ownerText",{}).get("runs",[])
+        if not video_id or not runs or video_id in seen: continue
+        title=runs[0].get("text","").strip();source=owner[0].get("text","YouTube") if owner else "YouTube";lower=title.lower()
+        if node["tipo"]=="Filme" and any(x in lower for x in ("trailer","review","reaction","gameplay")): continue
+        if node["tipo"]=="Audiolivro" and not any(x in lower for x in ("audio","livro","book","hoerbuch")): continue
+        seen.add(video_id);result.append((title,source,video_id,video.get("lengthText",{}).get("simpleText","Completo")))
     return result[:30]
 
-
 def processar(node):
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        raise RuntimeError("DATABASE_URL não configurada")
-    items = extract(search(node["termo"]), node)
-    if not items:
-        return 0
-    count = 0
-    with psycopg.connect(database_url) as conn:
-        for title, source, video_id, duration in items:
-            thumb = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
-            source_url = f"https://www.youtube.com/watch?v={video_id}"
-            row = conn.execute(
-                """INSERT INTO media_items(title,source_name,youtube_video_id,media_type,category,country,language,duration,thumbnail_url,source_url)
-                   VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                   ON CONFLICT (youtube_video_id) DO UPDATE SET updated_at=now(),is_active=TRUE
-                   RETURNING id""",
-                (title, source, video_id, node["tipo"], node["categoria"], node["pais"], node["idioma"], duration, thumb, source_url),
-            ).fetchone()
-            count += bool(row)
+    items=extract(search(node["termo"]),node)
+    if not items:return 0
+    count=0
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        for title,source,video_id,duration in items:
+            conn.execute("""INSERT INTO media_items(title,source_name,youtube_video_id,media_type,category,country,language,duration,thumbnail_url,source_url,is_active)
+            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE)
+            ON CONFLICT(youtube_video_id) DO UPDATE SET title=EXCLUDED.title,source_name=EXCLUDED.source_name,updated_at=now()""",
+            (title,source,video_id,node["tipo"],node["categoria"],node["pais"],node["idioma"],duration,f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",f"https://www.youtube.com/watch?v={video_id}"))
+            count+=1
     return count
 
-
 def run():
-    print("BETARUBI 2.0 — indexador global multithread")
-    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
-        conn.execute("CREATE TABLE IF NOT EXISTS media_items (id BIGSERIAL PRIMARY KEY,title TEXT NOT NULL,source_name TEXT NOT NULL,youtube_video_id TEXT NOT NULL UNIQUE,youtube_channel_id TEXT,media_type TEXT NOT NULL,category TEXT NOT NULL DEFAULT 'Geral',country TEXT NOT NULL DEFAULT 'Global',language TEXT NOT NULL DEFAULT 'Portugues',duration TEXT NOT NULL DEFAULT 'Completo',thumbnail_url TEXT,source_url TEXT NOT NULL,is_active BOOLEAN NOT NULL DEFAULT TRUE,created_at TIMESTAMPTZ NOT NULL DEFAULT now(),updated_at TIMESTAMPTZ NOT NULL DEFAULT now())")
-    total = 0
+    print("WEBPLAY — indexador global multithread")
+    total=0
     with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = [executor.submit(processar, node) for node in MATRIZ_GLOBAL]
-        for future in as_completed(futures):
-            total += future.result()
-    print(f"BETARUBI 2.0 — concluído: {total} registros processados")
+        futures=[executor.submit(processar,node) for node in MATRIZ_GLOBAL]
+        for future in as_completed(futures): total+=future.result()
+    print(f"WEBPLAY — concluído: {total} registros descobertos; mídia permanece inativa até validação de direitos.")
 
-
-if __name__ == "__main__":
-    run()
+if __name__=="__main__": run()

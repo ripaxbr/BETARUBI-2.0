@@ -1,0 +1,28 @@
+name: WEBPLAY Daily Discovery
+
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run WEBPLAY discovery
+        env:
+          DATABASE_URL: ${{ secrets.WEBPLAY_DATABASE_URL }}
+          YOUTUBE_API_KEY: ${{ secrets.WEBPLAY_YOUTUBE_API_KEY }}
+          SMTP_HOST: ${{ secrets.WEBPLAY_SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.WEBPLAY_SMTP_PORT }}
+          SMTP_USER: ${{ secrets.WEBPLAY_SMTP_USER }}
+          SMTP_PASS: ${{ secrets.WEBPLAY_SMTP_PASS }}
+          SMTP_FROM: ${{ secrets.WEBPLAY_SMTP_FROM }}
+        run: python motor_ia_global.py

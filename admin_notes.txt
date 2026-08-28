@@ -1,1 +1,0 @@
-Admin credentials are environment-only: ADMIN_PASSWORD. No default password is shipped.
