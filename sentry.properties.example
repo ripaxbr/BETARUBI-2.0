@@ -1,0 +1,1 @@
+# Set SENTRY_AUTH_TOKEN only in your CI/Vercel environment if release tracking is enabled.

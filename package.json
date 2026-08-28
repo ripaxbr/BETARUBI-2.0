@@ -1,0 +1,1 @@
+{"private":true,"scripts":{"check":"python -m py_compile app.py buscador_mundial.py api/index.py"}}
