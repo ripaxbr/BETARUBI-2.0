@@ -1,0 +1,1 @@
+BETARUBI 2.0 uses api/index.py as the Vercel entrypoint.
