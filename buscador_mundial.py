@@ -1,3 +1,4 @@
+import json
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -6,80 +7,109 @@ from urllib.request import Request, urlopen
 
 import psycopg
 
-TERMS = {
-    "Brasil": ["TV ao vivo", "Web TV ao vivo", "TV regional ao vivo", "Jornalismo ao vivo", "TV Assembleia"],
-    "Argentina": ["TN en vivo", "C5N en vivo", "Crónica TV en vivo", "Noticias Argentina"],
-    "México": ["N Mas en vivo", "Milenio en vivo", "Foro TV en vivo", "TV Azteca en vivo"],
-    "Colômbia": ["Noticias Caracol en vivo", "Canal RCN en vivo"],
-    "Chile": ["T13 en vivo", "Meganoticias en vivo"],
-    "Peru": ["RPP en vivo", "TV Peru en vivo"],
-    "Estados Unidos": ["ABC News Live", "NBC News NOW", "LiveNOW from FOX", "Voice of America"],
-    "Canadá": ["CBC News live", "CTV News live"],
-    "Reino Unido": ["Sky News Live", "BBC News Live", "GB News Live"],
-    "França": ["France 24 en direct", "BFMTV en direct", "CNEWS en direct"],
-    "Espanha": ["RTVE en directo", "Antena 3 en directo", "La Sexta en directo"],
-    "Portugal": ["RTP ao vivo", "SIC Noticias ao vivo", "CNN Portugal ao vivo"],
-    "Itália": ["TGCOM24 in diretta", "Rai News 24 in diretta"],
-    "Alemanha": ["Tagesschau live", "WELT Nachrichtensender live", "N-TV live"],
-    "Japão": ["ANN News live", "TBS News live", "FNN プライムオンライン"],
-    "Coreia do Sul": ["YTN live", "KBS News live"],
-    "Índia": ["Aaj Tak Live", "NDTV India Live", "India TV Live"],
-    "Austrália": ["ABC News Australia live", "Sky News Australia live"],
-    "África do Sul": ["SABC News live", "eNCA live"],
-    "Egito": ["Al Jazeera Arabic live", "Al Arabiya live"],
-    "República Dominicana": ["Noticias SIN en vivo", "CDN 37 en vivo"],
-    "Porto Rico": ["WAPA en vivo", "Telemundo PR en vivo"],
-}
+MATRIZ_GLOBAL = [
+    {"tipo":"Filme","categoria":"Acao","pais":"Brasil","idioma":"Portugues","termo":"filme de acao completo dublado"},
+    {"tipo":"Filme","categoria":"Terror","pais":"Brasil","idioma":"Portugues","termo":"filme de terror completo dublado"},
+    {"tipo":"Filme","categoria":"Comedia","pais":"EUA","idioma":"Ingles","termo":"full comedy movie public domain"},
+    {"tipo":"Filme","categoria":"Sci-Fi","pais":"EUA","idioma":"Ingles","termo":"full sci-fi movie public domain"},
+    {"tipo":"Filme","categoria":"Drama","pais":"Mexico","idioma":"Espanhol","termo":"pelicula de drama completa dominio publico"},
+    {"tipo":"Filme","categoria":"Anime","pais":"Japao","idioma":"Japones","termo":"公式 アニメ 映画 フル 公開"},
+    {"tipo":"Serie","categoria":"Documentario","pais":"Brasil","idioma":"Portugues","termo":"serie documental episodio completo oficial"},
+    {"tipo":"Serie","categoria":"Sci-Fi","pais":"EUA","idioma":"Ingles","termo":"web series episode full official"},
+    {"tipo":"Audiolivro","categoria":"Filosofia","pais":"Brasil","idioma":"Portugues","termo":"audiolivro dominio publico portugues"},
+    {"tipo":"Audiolivro","categoria":"Literatura","pais":"Brasil","idioma":"Portugues","termo":"audiolivro machado de assis dominio publico"},
+    {"tipo":"Audiolivro","categoria":"Literatura","pais":"Reino Unido","idioma":"Ingles","termo":"public domain audiobook sherlock holmes"},
+]
 
 
 def search(term):
     try:
         url = "https://www.youtube.com/results?search_query=" + quote(term)
-        req = Request(url, headers={"User-Agent": "Mozilla/5.0 BETARUBI-2.0"})
+        req = Request(url, headers={"User-Agent":"Mozilla/5.0 BETARUBI-2.0"})
         with urlopen(req, timeout=12) as response:
             return response.read().decode("utf-8", "ignore")
     except Exception:
         return ""
 
 
-def extract(html):
-    ids = set(re.findall(r'"channelId":"(UC[a-zA-Z0-9_-]{20,})"', html))
-    return ids
+def initial_data(html):
+    match = re.search(r"ytInitialData\s*=\s*(\{.*?\})\s*;", html, re.S)
+    if not match:
+        return None
+    try:
+        return json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return None
 
 
-def run_one(country, term):
-    found = 0
-    ids = extract(search(term))
-    if not ids:
+def walk(obj):
+    if isinstance(obj, dict):
+        if "videoRenderer" in obj:
+            yield obj["videoRenderer"]
+        for value in obj.values():
+            yield from walk(value)
+    elif isinstance(obj, list):
+        for value in obj:
+            yield from walk(value)
+
+
+def extract(html, node):
+    data = initial_data(html)
+    if not data:
+        return []
+    result = []
+    seen = set()
+    for video in walk(data):
+        video_id = video.get("videoId")
+        runs = video.get("title", {}).get("runs", [])
+        owner = video.get("ownerText", {}).get("runs", [])
+        if not video_id or not runs or video_id in seen:
+            continue
+        title = runs[0].get("text", "").strip()
+        source = owner[0].get("text", "YouTube") if owner else "YouTube"
+        lower = title.lower()
+        if node["tipo"] == "Filme" and any(x in lower for x in ("trailer", "review", "reaction", "gameplay")):
+            continue
+        if node["tipo"] == "Audiolivro" and not any(x in lower for x in ("audio", "livro", "book", "hoerbuch")):
+            continue
+        seen.add(video_id)
+        result.append((title, source, video_id, video.get("lengthText", {}).get("simpleText", "Completo")))
+    return result[:30]
+
+
+def processar(node):
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL não configurada")
+    items = extract(search(node["termo"]), node)
+    if not items:
         return 0
-    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
-        for channel_id in ids:
+    count = 0
+    with psycopg.connect(database_url) as conn:
+        for title, source, video_id, duration in items:
+            thumb = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
+            source_url = f"https://www.youtube.com/watch?v={video_id}"
             row = conn.execute(
-                """INSERT INTO tv_channels(name,youtube_channel_id,country,category,is_active)
-                   VALUES(%s,%s,%s,'Mundial',TRUE)
-                   ON CONFLICT (youtube_channel_id) DO UPDATE SET updated_at=now(), is_active=TRUE
+                """INSERT INTO media_items(title,source_name,youtube_video_id,media_type,category,country,language,duration,thumbnail_url,source_url)
+                   VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                   ON CONFLICT (youtube_video_id) DO UPDATE SET updated_at=now(),is_active=TRUE
                    RETURNING id""",
-                (f"Canal {channel_id[-8:]}", channel_id, country),
+                (title, source, video_id, node["tipo"], node["categoria"], node["pais"], node["idioma"], duration, thumb, source_url),
             ).fetchone()
-            found += bool(row)
-    return found
-
-
-def cleanup():
-    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
-        conn.execute("DELETE FROM tv_channels WHERE youtube_channel_id IS NULL OR youtube_channel_id NOT LIKE 'UC%'")
+            count += bool(row)
+    return count
 
 
 def run():
-    print("BETARUBI 2.0 — rastreador multithread iniciado")
-    tasks = []
+    print("BETARUBI 2.0 — indexador global multithread")
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS media_items (id BIGSERIAL PRIMARY KEY,title TEXT NOT NULL,source_name TEXT NOT NULL,youtube_video_id TEXT NOT NULL UNIQUE,youtube_channel_id TEXT,media_type TEXT NOT NULL,category TEXT NOT NULL DEFAULT 'Geral',country TEXT NOT NULL DEFAULT 'Global',language TEXT NOT NULL DEFAULT 'Portugues',duration TEXT NOT NULL DEFAULT 'Completo',thumbnail_url TEXT,source_url TEXT NOT NULL,is_active BOOLEAN NOT NULL DEFAULT TRUE,created_at TIMESTAMPTZ NOT NULL DEFAULT now(),updated_at TIMESTAMPTZ NOT NULL DEFAULT now())")
+    total = 0
     with ThreadPoolExecutor(max_workers=5) as executor:
-        for country, terms in TERMS.items():
-            for term in terms:
-                tasks.append(executor.submit(run_one, country, term))
-        total = sum(f.result() for f in as_completed(tasks))
-    cleanup()
-    print(f"BETARUBI 2.0 — varredura concluída: {total} registros processados")
+        futures = [executor.submit(processar, node) for node in MATRIZ_GLOBAL]
+        for future in as_completed(futures):
+            total += future.result()
+    print(f"BETARUBI 2.0 — concluído: {total} registros processados")
 
 
 if __name__ == "__main__":
