@@ -1,0 +1,1 @@
+Admin panel is served by templates/admin.html.
