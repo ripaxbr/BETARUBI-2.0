@@ -18,11 +18,14 @@ jobs:
         run: pip install -r requirements.txt
       - name: Run WEBPLAY discovery
         env:
-          DATABASE_URL: ${{ secrets.WEBPLAY_DATABASE_URL }}
-          YOUTUBE_API_KEY: ${{ secrets.WEBPLAY_YOUTUBE_API_KEY }}
-          SMTP_HOST: ${{ secrets.WEBPLAY_SMTP_HOST }}
-          SMTP_PORT: ${{ secrets.WEBPLAY_SMTP_PORT }}
-          SMTP_USER: ${{ secrets.WEBPLAY_SMTP_USER }}
-          SMTP_PASS: ${{ secrets.WEBPLAY_SMTP_PASS }}
-          SMTP_FROM: ${{ secrets.WEBPLAY_SMTP_FROM }}
+          # Prefer WEBPLAY-scoped credentials; fall back to existing account
+          # secrets when explicitly provisioned there. Values never enter Git.
+          DATABASE_URL: ${{ secrets.WEBPLAY_DATABASE_URL || secrets.DATABASE_URL || secrets.BETARUBI_DATABASE_URL }}
+          YOUTUBE_API_KEY: ${{ secrets.WEBPLAY_YOUTUBE_API_KEY || secrets.YOUTUBE_API_KEY || secrets.BETARUBI_YOUTUBE_API_KEY }}
+          SMTP_HOST: ${{ secrets.WEBPLAY_SMTP_HOST || secrets.SMTP_HOST || secrets.BETARUBI_SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.WEBPLAY_SMTP_PORT || secrets.SMTP_PORT || secrets.BETARUBI_SMTP_PORT }}
+          SMTP_USER: ${{ secrets.WEBPLAY_SMTP_USER || secrets.SMTP_USER || secrets.BETARUBI_SMTP_USER }}
+          SMTP_PASS: ${{ secrets.WEBPLAY_SMTP_PASS || secrets.SMTP_PASS || secrets.BETARUBI_SMTP_PASS }}
+          SMTP_FROM: ${{ secrets.WEBPLAY_SMTP_FROM || secrets.SMTP_FROM || secrets.BETARUBI_SMTP_FROM }}
+          WEBPLAY_URL: ${{ secrets.WEBPLAY_URL || secrets.BETARUBI_URL }}
         run: python motor_ia_global.py
