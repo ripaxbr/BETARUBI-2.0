@@ -14,8 +14,10 @@ Plataforma independente de streaming mundial, reconstruída do zero a partir da 
 - Newsletter de atualizações para usuários inscritos
 - PostgreSQL/Neon, Sentry e Vercel
 
-## Identidade
-O produto é **WEBPLAY**. Não depende do projeto BETARUBI principal e não deve compartilhar banco, domínio, secrets ou deployments com ele.
+## Identidade e infraestrutura
+O produto é **WEBPLAY**. O código, banco, domínio e deployment permanecem independentes do projeto BETARUBI principal.
+
+As credenciais existentes do ambiente BETARUBI podem ser reutilizadas quando o usuário autorizar e quando forem compatíveis com o WEBPLAY, sem copiar valores para o repositório. Sempre que houver risco de compartilhamento indevido de dados, prefira banco/schema e recursos próprios do WEBPLAY.
 
 ## Segurança
-Credenciais nunca devem ser commitadas. Configure `DATABASE_URL`, `SECRET_KEY` e, quando aplicável, `SENTRY_DSN`, chaves de API e SMTP somente no ambiente de execução.
+Credenciais nunca devem ser commitadas. Configure `DATABASE_URL`, `SECRET_KEY`, `ADMIN_PASSWORD`, `SENTRY_DSN`, chaves de API e SMTP somente no ambiente de execução.
